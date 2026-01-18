@@ -1,5 +1,5 @@
 ## Interface: 50400
-## Version: 8.0.002
+## Version: 9.0.1
 
 ## Title: CoolLine
 ## Notes: Shows cooldowns on a single bar.
