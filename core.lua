@@ -3,8 +3,6 @@ CoolLine:SetScript("OnEvent", function(this, event, ...)
 	this[event](this, ...)
 end)
 
-local IS_WOW_8 = GetBuildInfo():match("^8")
-
 local smed = LibStub("LibSharedMedia-3.0")
 
 local _G, pairs, strmatch, tinsert, tremove, random = _G, pairs, string.match, table.insert, table.remove, math.random
@@ -135,9 +133,9 @@ function CoolLine:ADDON_LOADED(a1)
 		t2:SetNonSpaceWrap(true)
 		t2:SetFormattedText("Notes: %s\nAuthor: %s\nVersion: %s\n"..
 							"Hint: |cffffff00/coolline|r to open menu; |cffffff00/coolline SpellOrItemNameOrLink|r to add/remove filter",
-							 GetAddOnMetadata("CoolLine", "Notes") or "N/A",
-							 GetAddOnMetadata("CoolLine", "Author") or "N/A",
-							 GetAddOnMetadata("CoolLine", "Version") or "N/A")
+							 C_AddOns.GetAddOnMetadata("CoolLine", "Notes") or "N/A",
+							 C_AddOns.GetAddOnMetadata("CoolLine", "Author") or "N/A",
+							 C_AddOns.GetAddOnMetadata("CoolLine", "Version") or "N/A")
 
 		local b = CreateFrame("Button", nil, this, "UIPanelButtonTemplate")
 		b:SetWidth(120)
@@ -148,7 +146,13 @@ function CoolLine:ADDON_LOADED(a1)
 		this:SetScript("OnShow", nil)
 	end)
 
-	InterfaceOptions_AddCategory(panel)
+	-- 设置面板注册 (兼容新旧API)
+	if Settings and Settings.RegisterCanvasLayoutCategory then
+		local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+		Settings.RegisterAddOnCategory(category)
+	else
+		InterfaceOptions_AddCategory(panel)
+	end
 
 	createfs = function(f, text, offset, just)
 		local fs = f or self.overlay:CreateFontString(nil, "OVERLAY")
@@ -196,14 +200,16 @@ function CoolLine:ADDON_LOADED(a1)
 			self.bg:SetTexCoord(0,1, 0,1)
 		end
 
-		self.border = self.border or CreateFrame("Frame", nil, self)
-		self.border:SetPoint("TOPLEFT", -db.borderinset, db.borderinset) -- Implemented 'insets'
-		self.border:SetPoint("BOTTOMRIGHT", db.borderinset, -db.borderinset) -- Implemented 'insets'
+		if not self.border then
+			self.border = CreateFrame("Frame", nil, self, "BackdropTemplate")
+		end
+		self.border:SetPoint("TOPLEFT", -db.borderinset, db.borderinset)
+		self.border:SetPoint("BOTTOMRIGHT", db.borderinset, -db.borderinset)
 
 		backdrop = {
 			edgeFile = smed:Fetch("border", db.border),
 			edgeSize = db.bordersize,
-		} -- Updated backdrop table
+		}
 		self.border:SetBackdrop(backdrop)
 		self.border:SetBackdropBorderColor(db.bordercolor.r, db.bordercolor.g, db.bordercolor.b, db.bordercolor.a)
 
@@ -408,7 +414,7 @@ local function NewCooldown(name, icon, endtime, isplayer)
 	if not f then
 		f = f or tremove(frames)
 		if not f then
-			f = CreateFrame("Frame", nil, CoolLine.border)
+			f = CreateFrame("Frame", nil, CoolLine.border, "BackdropTemplate")
 			f:SetBackdrop(iconback)
 			f.icon = f:CreateTexture(nil, "ARTWORK")
 			f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -563,8 +569,6 @@ end
 do  -- scans equipments and bags for item cooldowns
 	local GetItemInfo = GetItemInfo
 	local GetInventoryItemCooldown, GetInventoryItemTexture = GetInventoryItemCooldown, GetInventoryItemTexture
-	local GetContainerItemCooldown, GetContainerItemInfo = GetContainerItemCooldown, GetContainerItemInfo
-	local GetContainerNumSlots = GetContainerNumSlots
 
 	---------------------------------------
 	function CoolLine:BAG_UPDATE_COOLDOWN()
@@ -584,13 +588,14 @@ do  -- scans equipments and bags for item cooldowns
 		end
 
 		for i = 0, (db.hidebag and -1) or 4 do
-			for j = 1, GetContainerNumSlots(i) do
-				local start, duration, enable = GetContainerItemCooldown(i, j)
+			for j = 1, C_Container.GetContainerNumSlots(i) do
+				local start, duration, enable = C_Container.GetContainerItemCooldown(i, j)
 				if enable == 1 then
-					local name = GetItemInfo(GetContainerItemLink(i, j))
+					local name = GetItemInfo(C_Container.GetContainerItemLink(i, j))
 					if start > 0 and not block[name] then
 						if duration > 3 and duration < 3601 then
-							NewCooldown(name, GetContainerItemInfo(i, j), start + duration)
+							local itemInfo = C_Container.GetContainerItemInfo(i, j)
+							NewCooldown(name, itemInfo and itemInfo.iconFileID, start + duration)
 						end
 					else
 						ClearCooldown(nil, name)
@@ -607,12 +612,7 @@ function CoolLine:PET_BAR_UPDATE_COOLDOWN()
 	for i = 1, 10 do
 		local start, duration, enable = GetPetActionCooldown(i)
 		if enable == 1 then
-			local name, _, texture
-			if IS_WOW_8 then
-				name, texture = GetPetActionInfo(i)
-			else
-				name, _, texture = GetPetActionInfo(i)
-			end
+			local name, texture = GetPetActionInfo(i)
 			if name then
 				if start > 0 and not block[name] then
 					if duration > 3 then
@@ -680,10 +680,11 @@ end
 
 local failborder
 ----------------------------------------------------
-function CoolLine:UNIT_SPELLCAST_FAILED(unit, spell, id8)
+function CoolLine:UNIT_SPELLCAST_FAILED(unit, spell, spellID)
 ----------------------------------------------------
-	if IS_WOW_8 then
-		spell = GetSpellInfo(id8) -- TEMPORARY, need to switch to using spell IDs throughout
+	-- 在正式服内核中,spell参数可能是ID,需要转换为名称
+	if type(spell) == "number" or (spellID and type(spellID) == "number") then
+		spell = GetSpellInfo(spellID or spell)
 	end
 
 	if #cooldowns == 0 then return end
@@ -692,7 +693,7 @@ function CoolLine:UNIT_SPELLCAST_FAILED(unit, spell, id8)
 		if frame.name == spell then
 			if frame.endtime - GetTime() > 1 then
 				if not failborder then
-					failborder = CreateFrame("Frame", nil, CoolLine.border)
+					failborder = CreateFrame("Frame", nil, CoolLine.border, "BackdropTemplate")
 					failborder:SetBackdrop(iconback)
 					failborder:SetBackdropColor(1, 0, 0, 0.9)
 					failborder:Hide()
@@ -754,7 +755,7 @@ function ShowOptions(a1)
 						updatelook()
 					end)
 
-					CoolLine:SetMinResize(6, 6)
+					CoolLine:SetResizeBounds(6, 6)
 					CoolLine.resizer = CreateFrame("Button", nil, CoolLine.border, "UIPanelButtonTemplate")
 					local resize = CoolLine.resizer
 					resize:SetWidth(8)
@@ -767,7 +768,7 @@ function ShowOptions(a1)
 						updatelook()
 					end)
 				end
-				if not CoolLine.unlock then
+			if not CoolLine.unlock then
 					CoolLine.unlock = true
 					CoolLine:EnableMouse(true)
 					CoolLine.resizer:Show()
