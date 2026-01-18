@@ -1,7 +1,14 @@
-local CoolLine = CreateFrame("Frame", "CoolLine", UIParent)
-CoolLine:SetScript("OnEvent", function(this, event, ...)
+local addonName, CoolLine = ...
+CoolLine.L = CoolLine.L or {}
+local L = CoolLine.L
+setmetatable(L, { __index = function(t, k) return k end })
+
+local frame = CreateFrame("Frame", "CoolLine", UIParent)
+frame:SetScript("OnEvent", function(this, event, ...)
 	this[event](this, ...)
 end)
+
+CoolLine = frame  -- 保持全局引用兼容性
 
 local smed = LibStub("LibSharedMedia-3.0")
 
@@ -110,8 +117,7 @@ function CoolLine:ADDON_LOADED(a1)
 		}
 	end
 
-	SlashCmdList.COOLLINE = ShowOptions
-	SLASH_COOLLINE1 = "/coolline"
+
 
 	local panel = CreateFrame("Frame")
 	panel.name = "CoolLine"
@@ -132,7 +138,7 @@ function CoolLine:ADDON_LOADED(a1)
 		t2:SetPoint("RIGHT", this, "RIGHT", -32, 0)
 		t2:SetNonSpaceWrap(true)
 		t2:SetFormattedText("Notes: %s\nAuthor: %s\nVersion: %s\n"..
-							"Hint: |cffffff00/coolline|r to open menu; |cffffff00/coolline SpellOrItemNameOrLink|r to add/remove filter",
+							L["slash_hint"],
 							 C_AddOns.GetAddOnMetadata("CoolLine", "Notes") or "N/A",
 							 C_AddOns.GetAddOnMetadata("CoolLine", "Author") or "N/A",
 							 C_AddOns.GetAddOnMetadata("CoolLine", "Version") or "N/A")
@@ -725,17 +731,17 @@ function ShowOptions(a1)
 		if a1 then
 			if block[a1] then
 				block[a1] = nil
-				print("|cff88ffffCool|r|cff88ff88Line|r: |cffffff00"..a1.."|r removed from filter.")
+				print("|cff88ffffCool|r|cff88ff88Line|r: |cffffff00"..a1.."|r "..L["removed_from_filter"].."")
 			else
 				block[a1] = true
-				print("|cff88ffffCool|r|cff88ff88Line|r: |cffffff00"..a1.."|r added to filter.")
+				print("|cff88ffffCool|r|cff88ff88Line|r: |cffffff00"..a1.."|r "..L["added_to_filter"].."")
 			end
 		end
 		return
 	end
 
 	if not CoolLineDD then
-		CoolLineDD = CreateFrame("Frame", "CoolLineDD", UIParent)
+		CoolLineDD = CreateFrame("Frame", "CoolLineDD", UIParent, "UIDropDownMenuTemplate")
 		CoolLineDD.displayMode = "MENU"
 
 		Set = function(b, a1)
@@ -773,7 +779,7 @@ function ShowOptions(a1)
 					CoolLine:EnableMouse(true)
 					CoolLine.resizer:Show()
 					CoolLine:SetAlpha(db.activealpha)
-					print("CoolLine - drag frame to reposition or drag red corner to resize")
+					print(L["drag_hint"])
 				else
 					CoolLine.unlock = nil
 					CoolLine:EnableMouse(false)
@@ -897,22 +903,22 @@ function ShowOptions(a1)
 				info.isTitle = true
 				info.notCheckable = 1
 				AddButton(lvl, "|cff88ffffCool|r|cff88ff88Line|r")
-				AddList(lvl, "Texture", "statusbar")
-				AddColor(lvl, "Texture Color", "bgcolor")
-				AddList(lvl, "Border", "border")
-				AddList(lvl, "Border Size", "bordersize") -- Added Options
-				AddList(lvl, "Border Inset", "borderinset") -- Added Options
-				AddColor(lvl, "Border Color", "bordercolor")
-				AddList(lvl, "Font", "font")
-				AddColor(lvl, "Font Color", "fontcolor")
-				AddList(lvl, "Font Size", "fontsize")
-				AddColor(lvl, "My Spell Color", "spellcolor")
-				AddColor(lvl, "Item/Pet Color", "nospellcolor")
-				AddList(lvl, "Inactive Opacity", "inactivealpha")
-				AddList(lvl, "Active Opacity", "activealpha")
-				AddList(lvl, "Icon Size", "iconplus")
-				AddList(lvl, "More", "More")
-				AddToggle(lvl, "Unlock", "unlock")
+				AddList(lvl, L["Texture"], "statusbar")
+				AddColor(lvl, L["Texture Color"], "bgcolor")
+				AddList(lvl, L["Border"], "border")
+				AddList(lvl, L["Border Size"], "bordersize") -- Added Options
+				AddList(lvl, L["Border Inset"], "borderinset") -- Added Options
+				AddColor(lvl, L["Border Color"], "bordercolor")
+				AddList(lvl, L["Font"], "font")
+				AddColor(lvl, L["Font Color"], "fontcolor")
+				AddList(lvl, L["Font Size"], "fontsize")
+				AddColor(lvl, L["My Spell Color"], "spellcolor")
+				AddColor(lvl, L["Item/Pet Color"], "nospellcolor")
+				AddList(lvl, L["Inactive Opacity"], "inactivealpha")
+				AddList(lvl, L["Active Opacity"], "activealpha")
+				AddList(lvl, L["Icon Size"], "iconplus")
+				AddList(lvl, L["More"], "More")
+				AddToggle(lvl, L["Unlock"], "unlock")
 			elseif lvl and lvl > 1 then
 				local sub = UIDROPDOWNMENU_MENU_VALUE
 				if sub == "font" or sub == "statusbar" or sub == "border" then
@@ -923,7 +929,7 @@ function ShowOptions(a1)
 						if not t[i] then break end
 						AddSelect(lvl, t[i], sub, t[i])
 						if i == endi and t[i + 1] then
-							AddList(lvl, "More", sub)
+							AddList(lvl, L["More"], sub)
 						end
 					end
 				elseif sub == "fontsize" then
@@ -950,20 +956,23 @@ function ShowOptions(a1)
 						AddSelect(lvl, format("+%d", i), sub, i)
 					end
 				elseif sub == "More" then
-					AddToggle(lvl, "Vertical", "vertical")
-					AddToggle(lvl, "Reverse", "reverse")
-					AddToggle(lvl, "Disable Cast Fail", "hidefail")
-					AddToggle(lvl, "Disable Equipped", "hideinv")
-					AddToggle(lvl, "Disable Bags", "hidebag")
-					AddToggle(lvl, "Disable Pet", "hidepet")
-					AddToggle(lvl, "Save Per Char", "perchar")
+					AddToggle(lvl, L["Vertical"], "vertical")
+					AddToggle(lvl, L["Reverse"], "reverse")
+					AddToggle(lvl, L["Disable Cast Fail"], "hidefail")
+					AddToggle(lvl, L["Disable Equipped"], "hideinv")
+					AddToggle(lvl, L["Disable Bags"], "hidebag")
+					AddToggle(lvl, L["Disable Pet"], "hidepet")
+					AddToggle(lvl, L["Save Per Char"], "perchar")
 					AddToggle(lvl, _G.RESET_TO_DEFAULT, "resetall")
 				end
 			end
 		end
 	end
 
-	ToggleDropDownMenu(1, nil, CoolLineDD, "cursor")
+
+	CoolLineDD:ClearAllPoints()
+	CoolLineDD:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+	ToggleDropDownMenu(1, nil, CoolLineDD, "CoolLineDD", 0, 0)
 end
 
 CONFIGMODE_CALLBACKS = CONFIGMODE_CALLBACKS or {}
@@ -982,3 +991,6 @@ CONFIGMODE_CALLBACKS.CoolLine = function(action, mode)
 		end
 	end
 end
+
+SlashCmdList.COOLLINE = ShowOptions
+SLASH_COOLLINE1 = "/coolline"
