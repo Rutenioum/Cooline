@@ -1,6 +1,6 @@
 # CoolLine
 
-## 9.0.1
+## 9.0.1 (2026-01-19)
 - Fix MoP Classic compatibility: replace legacy APIs (C_Container, C_AddOns)
 - Fix menu visibility: add UIDropDownMenuTemplate
 - Fix Unlock functionality: replace SetMinResize with SetResizeBounds and fix indentation logic
