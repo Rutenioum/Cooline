@@ -36,3 +36,5 @@ L["drag_hint"] = "CoolLine - 拖动框架移动位置,拖动红色角落调整�
 L["removed_from_filter"] = "已从过滤器移除"
 L["added_to_filter"] = "已添加到过滤器"
 L["slash_hint"] = "提示: |cffffff00/coolline|r 打开菜单; |cffffff00/coolline 技能或物品名称/链接|r 添加/移除过滤"
+L["Open Options Menu"] = "打开CoolLine菜单"
+L["menu_taint_warning"] = "菜单已被其他插件阻塞。请点击上方按钮打开。"

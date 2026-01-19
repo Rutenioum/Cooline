@@ -722,8 +722,257 @@ end
 
 local CoolLineDD, Set
 local info = { }
+local CoolLineAnchor
 
-function ShowOptions(a1)
+Set = function(b, a1)
+	if a1 == "unlock" then
+		if not CoolLine.resizer then
+			CoolLine:SetMovable(true)
+			CoolLine:SetResizable(true)
+			CoolLine:RegisterForDrag("LeftButton")
+			CoolLine:SetScript("OnMouseUp", function(this, a1) if a1 == "RightButton" then ShowOptions() end end)
+			CoolLine:SetScript("OnDragStart", function(this) this:StartMoving() end)
+			CoolLine:SetScript("OnDragStop", function(this)
+				this:StopMovingOrSizing()
+				local x, y = this:GetCenter()
+				local ux, uy = UIParent:GetCenter()
+				db.x, db.y = floor(x - ux + 0.5), floor(y - uy + 0.5)
+				this:ClearAllPoints()
+				updatelook()
+			end)
+
+			CoolLine:SetResizeBounds(6, 6)
+			CoolLine.resizer = CreateFrame("Button", nil, CoolLine.border, "UIPanelButtonTemplate")
+			local resize = CoolLine.resizer
+			resize:SetWidth(8)
+			resize:SetHeight(8)
+			resize:SetPoint("BOTTOMRIGHT", CoolLine, "BOTTOMRIGHT", 2, -2)
+			resize:SetScript("OnMouseDown", function(this) CoolLine:StartSizing("BOTTOMRIGHT") end)
+			resize:SetScript("OnMouseUp", function(this)
+				CoolLine:StopMovingOrSizing()
+				db.w, db.h = floor(CoolLine:GetWidth() + 0.5), floor(CoolLine:GetHeight() + 0.5)
+				updatelook()
+			end)
+		end
+		if not CoolLine.unlock then
+			CoolLine.unlock = true
+			CoolLine:EnableMouse(true)
+			CoolLine.resizer:Show()
+			CoolLine:SetAlpha(db.activealpha)
+			print(L["drag_hint"])
+		else
+			CoolLine.unlock = nil
+			CoolLine:EnableMouse(false)
+			CoolLine.resizer:Hide()
+			OnUpdate(CoolLine, 2)
+		end
+	elseif a1 then
+		if a1 == "vertical" then
+			local pw, ph = db.w, db.h
+			db.w, db.h = ph, pw
+		elseif a1 == "resetall" then
+			CoolLineCharDB, CoolLineDB = nil, nil
+			return ReloadUI()
+		end
+		db[a1] = not db[a1]
+		if a1 == "perchar" then
+			if db.perchar then
+				CoolLineCharDB = CoolLineCharDB or CoolLineDB
+			else
+				CoolLineCharDB = nil
+			end
+			ReloadUI()
+		end
+		updatelook()
+	end
+end
+
+local function SetSelect(b, a1)
+	db[a1] = tonumber(b.value) or b.value
+	local level, num = strmatch(b:GetName(), "DropDownList(%d+)Button(%d+)")
+	level, num = tonumber(level) or 0, tonumber(num) or 0
+	for i = 2, level do
+		for j = 1, UIDROPDOWNMENU_MAXBUTTONS do
+			local check = _G["DropDownList"..i.."Button"..j.."Check"]
+			if check and i == level and j == num then
+				check:Show()
+			elseif b then
+				check:Hide()
+			end
+		end
+	end
+	updatelook()
+end
+
+local function SetColor(a1)
+	local dbc = db[UIDROPDOWNMENU_MENU_VALUE]
+	if not dbc then return end
+	local r, g, b, a
+	if a1 then
+		local pv = ColorPickerFrame.previousValues
+		r, g, b, a = pv.r, pv.g, pv.b, 1 - pv.opacity
+	else
+		r, g, b = ColorPickerFrame:GetColorRGB()
+		a = 1 - OpacitySliderFrame:GetValue()
+	end
+	dbc.r, dbc.g, dbc.b, dbc.a = r, g, b, a
+	updatelook()
+end
+
+local function HideCheck(b)
+	if b and b.GetName and _G[b:GetName().."Check"] then
+		_G[b:GetName().."Check"]:Hide()
+	end
+end
+
+local function AddButton(lvl, text, keepshown)
+	info.text = text
+	info.keepShownOnClick = keepshown
+	UIDropDownMenu_AddButton(info, lvl)
+	wipe(info)
+end
+
+local function AddToggle(lvl, text, value)
+	info.arg1 = value
+	info.func = Set
+	if value == "unlock" then
+		info.checked = CoolLine.unlock
+	else
+		info.checked = db[value]
+	end
+	AddButton(lvl, text, 1)
+end
+
+local function AddList(lvl, text, value)
+	info.value = value
+	info.hasArrow = true
+	info.func = HideCheck
+	info.notCheckable = 1
+	AddButton(lvl, text, 1)
+end
+
+local function AddSelect(lvl, text, arg1, value)
+	info.arg1 = arg1
+	info.func = SetSelect
+	info.value = value
+	if tonumber(value) and tonumber(db[arg1] or "blah") then
+		if floor(100 * tonumber(value)) == floor(100 * tonumber(db[arg1])) then
+			info.checked = true
+		end
+	else
+		info.checked = db[arg1] == value
+	end
+	AddButton(lvl, text, 1)
+end
+
+local function AddColor(lvl, text, value)
+	local dbc = db[value]
+	if not dbc then return end
+	info.hasColorSwatch = true
+	info.hasOpacity = 1
+	info.r, info.g, info.b, info.opacity = dbc.r, dbc.g, dbc.b, 1 - (dbc.a or 0)
+	info.swatchFunc, info.opacityFunc, info.cancelFunc = SetColor, SetColor, SetColor
+	info.value = value
+	info.func = UIDropDownMenuButton_OpenColorPicker
+	info.notCheckable = 1
+	AddButton(lvl, text, nil)
+end
+
+local RescueButton
+
+local function InitializeMenu()
+	if CoolLineDD then return end
+	
+	-- 逻辑框架: 保持标准模板以兼容系统
+	CoolLineDD = CreateFrame("Frame", "CoolLineDD", UIParent, "UIDropDownMenuTemplate")
+	-- CoolLineDD.displayMode = "MENU" -- 移除这一行,某些版本可能导致问题,UIDropDownMenu 默认为向下
+
+	-- 锚点框架: 纯净的不可见框架,只用于定位
+	CoolLineAnchor = CreateFrame("Frame", "CoolLineAnchor", UIParent)
+	CoolLineAnchor:SetSize(1, 1)
+	CoolLineAnchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+
+	CoolLineDD.initialize = function(self, lvl)
+		if lvl == 1 then
+			info.isTitle = true
+			info.notCheckable = 1
+			AddButton(lvl, "|cff88ffffCool|r|cff88ff88Line|r")
+			AddList(lvl, L["Texture"], "statusbar")
+			AddColor(lvl, L["Texture Color"], "bgcolor")
+			AddList(lvl, L["Border"], "border")
+			AddList(lvl, L["Border Size"], "bordersize") -- Added Options
+			AddList(lvl, L["Border Inset"], "borderinset") -- Added Options
+			AddColor(lvl, L["Border Color"], "bordercolor")
+			AddList(lvl, L["Font"], "font")
+			AddColor(lvl, L["Font Color"], "fontcolor")
+			AddList(lvl, L["Font Size"], "fontsize")
+			AddColor(lvl, L["My Spell Color"], "spellcolor")
+			AddColor(lvl, L["Item/Pet Color"], "nospellcolor")
+			AddList(lvl, L["Inactive Opacity"], "inactivealpha")
+			AddList(lvl, L["Active Opacity"], "activealpha")
+			AddList(lvl, L["Icon Size"], "iconplus")
+			AddList(lvl, L["More"], "More")
+			AddToggle(lvl, L["Unlock"], "unlock")
+		elseif lvl and lvl > 1 then
+			local sub = UIDROPDOWNMENU_MENU_VALUE
+			if sub == "font" or sub == "statusbar" or sub == "border" then
+				local t = smed:List(sub)
+				local starti = 20 * (lvl - 2) + 1
+				local endi = 20 * (lvl - 1)
+				for i = starti, endi do
+					if not t[i] then break end
+					AddSelect(lvl, t[i], sub, t[i])
+					if i == endi and t[i + 1] then
+						AddList(lvl, L["More"], sub)
+					end
+				end
+			elseif sub == "fontsize" then
+				for i = 5, 12 do
+					AddSelect(lvl, i, "fontsize", i)
+				end
+				for i = 14, 28, 2 do
+					AddSelect(lvl, i, "fontsize", i)
+				end
+			elseif sub == "bordersize" then -- Added options limits
+				for i = 1, 16 do
+					AddSelect(lvl, i, "bordersize", i)
+				end
+			elseif sub == "borderinset" then -- Added options limits
+				for i = -10, 10 do
+					AddSelect(lvl, i, "borderinset", i)
+				end
+			elseif sub == "inactivealpha" or sub == "activealpha" then
+				for i = 0, 1, 0.1 do
+					AddSelect(lvl, format("%.1f", i), sub, i)
+				end
+			elseif sub == "iconplus" then
+				for i = 0, 24, 2 do
+					AddSelect(lvl, format("+%d", i), sub, i)
+				end
+			elseif sub == "More" then
+				AddToggle(lvl, L["Vertical"], "vertical")
+				AddToggle(lvl, L["Reverse"], "reverse")
+				AddToggle(lvl, L["Disable Cast Fail"], "hidefail")
+				AddToggle(lvl, L["Disable Equipped"], "hideinv")
+				AddToggle(lvl, L["Disable Bags"], "hidebag")
+				AddToggle(lvl, L["Disable Pet"], "hidepet")
+				AddToggle(lvl, L["Save Per Char"], "perchar")
+				AddToggle(lvl, "_G.RESET_TO_DEFAULT", "resetall") -- Potential fix: _G.RESET_TO_DEFAULT might need to be resolved or just passed as string if L has it, or valid global
+			end
+		end
+	end
+	
+	-- 必须Show(),否则ToggleDropDownMenu不工作。但我们手动隐藏所有可见部件。
+	CoolLineDD:Show() 
+	local name = CoolLineDD:GetName()
+	if _G[name.."Left"] then _G[name.."Left"]:Hide() end
+	if _G[name.."Middle"] then _G[name.."Middle"]:Hide() end
+	if _G[name.."Right"] then _G[name.."Right"]:Hide() end
+	if _G[name.."Button"] then _G[name.."Button"]:Hide() end
+	if _G[name.."Text"] then _G[name.."Text"]:Hide() end
+end
+
+ShowOptions = function(a1)
 	if type(a1) == "string" and a1 ~= "" and a1 ~= "menu" and a1 ~= "options" and a1 ~= "help" then
 		if strmatch(a1, "|H") then
 			a1 = strmatch(a1, "|h%[(.+)%]|h")
@@ -740,248 +989,63 @@ function ShowOptions(a1)
 		return
 	end
 
-	if not CoolLineDD then
-		CoolLineDD = CreateFrame("Frame", "CoolLineDD", UIParent, "UIDropDownMenuTemplate")
-		CoolLineDD.displayMode = "MENU"
-
-		Set = function(b, a1)
-			if a1 == "unlock" then
-				if not CoolLine.resizer then
-					CoolLine:SetMovable(true)
-					CoolLine:SetResizable(true)
-					CoolLine:RegisterForDrag("LeftButton")
-					CoolLine:SetScript("OnMouseUp", function(this, a1) if a1 == "RightButton" then ShowOptions() end end)
-					CoolLine:SetScript("OnDragStart", function(this) this:StartMoving() end)
-					CoolLine:SetScript("OnDragStop", function(this)
-						this:StopMovingOrSizing()
-						local x, y = this:GetCenter()
-						local ux, uy = UIParent:GetCenter()
-						db.x, db.y = floor(x - ux + 0.5), floor(y - uy + 0.5)
-						this:ClearAllPoints()
-						updatelook()
-					end)
-
-					CoolLine:SetResizeBounds(6, 6)
-					CoolLine.resizer = CreateFrame("Button", nil, CoolLine.border, "UIPanelButtonTemplate")
-					local resize = CoolLine.resizer
-					resize:SetWidth(8)
-					resize:SetHeight(8)
-					resize:SetPoint("BOTTOMRIGHT", CoolLine, "BOTTOMRIGHT", 2, -2)
-					resize:SetScript("OnMouseDown", function(this) CoolLine:StartSizing("BOTTOMRIGHT") end)
-					resize:SetScript("OnMouseUp", function(this)
-						CoolLine:StopMovingOrSizing()
-						db.w, db.h = floor(CoolLine:GetWidth() + 0.5), floor(CoolLine:GetHeight() + 0.5)
-						updatelook()
-					end)
-				end
-			if not CoolLine.unlock then
-					CoolLine.unlock = true
-					CoolLine:EnableMouse(true)
-					CoolLine.resizer:Show()
-					CoolLine:SetAlpha(db.activealpha)
-					print(L["drag_hint"])
-				else
-					CoolLine.unlock = nil
-					CoolLine:EnableMouse(false)
-					CoolLine.resizer:Hide()
-					OnUpdate(CoolLine, 2)
-				end
-			elseif a1 then
-				if a1 == "vertical" then
-					local pw, ph = db.w, db.h
-					db.w, db.h = ph, pw
-				elseif a1 == "resetall" then
-					CoolLineCharDB, CoolLineDB = nil, nil
-					return ReloadUI()
-				end
-				db[a1] = not db[a1]
-				if a1 == "perchar" then
-					if db.perchar then
-						CoolLineCharDB = CoolLineCharDB or CoolLineDB
-					else
-						CoolLineCharDB = nil
-					end
-					ReloadUI()
-				end
-				updatelook()
+	InitializeMenu()
+	
+	-- 救援按钮机制初始化
+	if not RescueButton then
+		RescueButton = CreateFrame("Button", "CoolLineRescueButton", UIParent, "UIPanelButtonTemplate")
+		RescueButton:SetSize(150, 40)
+		RescueButton:SetPoint("CENTER", 0, 100)
+		RescueButton:SetText(L["Open Options Menu"] or "Open CoolLine Options")
+		RescueButton:SetFrameStrata("DIALOG")
+		RescueButton:SetScript("OnClick", function(self)
+			-- 点击是硬件事件，可以安全地清除下拉菜单状态并重新打开
+			if UIDropDownMenu_GetCurrentDropDown and UIDropDownMenu_GetCurrentDropDown() ~= CoolLineDD then
+				CloseDropDownMenus()
 			end
-		end
-
-		local function SetSelect(b, a1)
-			db[a1] = tonumber(b.value) or b.value
-			local level, num = strmatch(b:GetName(), "DropDownList(%d+)Button(%d+)")
-			level, num = tonumber(level) or 0, tonumber(num) or 0
-			for i = 2, level do
-				for j = 1, UIDROPDOWNMENU_MAXBUTTONS do
-					local check = _G["DropDownList"..i.."Button"..j.."Check"]
-					if check and i == level and j == num then
-						check:Show()
-					elseif b then
-						check:Hide()
-					end
-				end
-			end
-			updatelook()
-		end
-
-		local function SetColor(a1)
-			local dbc = db[UIDROPDOWNMENU_MENU_VALUE]
-			if not dbc then return end
-			local r, g, b, a
-			if a1 then
-				local pv = ColorPickerFrame.previousValues
-				r, g, b, a = pv.r, pv.g, pv.b, 1 - pv.opacity
-			else
-				r, g, b = ColorPickerFrame:GetColorRGB()
-				a = 1 - OpacitySliderFrame:GetValue()
-			end
-			dbc.r, dbc.g, dbc.b, dbc.a = r, g, b, a
-			updatelook()
-		end
-
-		local function HideCheck(b)
-			if b and b.GetName and _G[b:GetName().."Check"] then
-				_G[b:GetName().."Check"]:Hide()
-			end
-		end
-
-		local function AddButton(lvl, text, keepshown)
-			info.text = text
-			info.keepShownOnClick = keepshown
-			UIDropDownMenu_AddButton(info, lvl)
-			wipe(info)
-		end
-
-		local function AddToggle(lvl, text, value)
-			info.arg1 = value
-			info.func = Set
-			if value == "unlock" then
-				info.checked = CoolLine.unlock
-			else
-				info.checked = db[value]
-			end
-			AddButton(lvl, text, 1)
-		end
-
-		local function AddList(lvl, text, value)
-			info.value = value
-			info.hasArrow = true
-			info.func = HideCheck
-			info.notCheckable = 1
-			AddButton(lvl, text, 1)
-		end
-
-		local function AddSelect(lvl, text, arg1, value)
-			info.arg1 = arg1
-			info.func = SetSelect
-			info.value = value
-			if tonumber(value) and tonumber(db[arg1] or "blah") then
-				if floor(100 * tonumber(value)) == floor(100 * tonumber(db[arg1])) then
-					info.checked = true
-				end
-			else
-				info.checked = db[arg1] == value
-			end
-			AddButton(lvl, text, 1)
-		end
-
-		local function AddColor(lvl, text, value)
-			local dbc = db[value]
-			if not dbc then return end
-			info.hasColorSwatch = true
-			info.hasOpacity = 1
-			info.r, info.g, info.b, info.opacity = dbc.r, dbc.g, dbc.b, 1 - (dbc.a or 0)
-			info.swatchFunc, info.opacityFunc, info.cancelFunc = SetColor, SetColor, SetColor
-			info.value = value
-			info.func = UIDropDownMenuButton_OpenColorPicker
-			info.notCheckable = 1
-			AddButton(lvl, text, nil)
-		end
-
-		CoolLineDD.initialize = function(self, lvl)
-			if lvl == 1 then
-				info.isTitle = true
-				info.notCheckable = 1
-				AddButton(lvl, "|cff88ffffCool|r|cff88ff88Line|r")
-				AddList(lvl, L["Texture"], "statusbar")
-				AddColor(lvl, L["Texture Color"], "bgcolor")
-				AddList(lvl, L["Border"], "border")
-				AddList(lvl, L["Border Size"], "bordersize") -- Added Options
-				AddList(lvl, L["Border Inset"], "borderinset") -- Added Options
-				AddColor(lvl, L["Border Color"], "bordercolor")
-				AddList(lvl, L["Font"], "font")
-				AddColor(lvl, L["Font Color"], "fontcolor")
-				AddList(lvl, L["Font Size"], "fontsize")
-				AddColor(lvl, L["My Spell Color"], "spellcolor")
-				AddColor(lvl, L["Item/Pet Color"], "nospellcolor")
-				AddList(lvl, L["Inactive Opacity"], "inactivealpha")
-				AddList(lvl, L["Active Opacity"], "activealpha")
-				AddList(lvl, L["Icon Size"], "iconplus")
-				AddList(lvl, L["More"], "More")
-				AddToggle(lvl, L["Unlock"], "unlock")
-			elseif lvl and lvl > 1 then
-				local sub = UIDROPDOWNMENU_MENU_VALUE
-				if sub == "font" or sub == "statusbar" or sub == "border" then
-					local t = smed:List(sub)
-					local starti = 20 * (lvl - 2) + 1
-					local endi = 20 * (lvl - 1)
-					for i = starti, endi do
-						if not t[i] then break end
-						AddSelect(lvl, t[i], sub, t[i])
-						if i == endi and t[i + 1] then
-							AddList(lvl, L["More"], sub)
-						end
-					end
-				elseif sub == "fontsize" then
-					for i = 5, 12 do
-						AddSelect(lvl, i, "fontsize", i)
-					end
-					for i = 14, 28, 2 do
-						AddSelect(lvl, i, "fontsize", i)
-					end
-				elseif sub == "bordersize" then -- Added options limits
-					for i = 1, 16 do
-						AddSelect(lvl, i, "bordersize", i)
-					end
-				elseif sub == "borderinset" then -- Added options limits
-					for i = -10, 10 do
-						AddSelect(lvl, i, "borderinset", i)
-					end
-				elseif sub == "inactivealpha" or sub == "activealpha" then
-					for i = 0, 1, 0.1 do
-						AddSelect(lvl, format("%.1f", i), sub, i)
-					end
-				elseif sub == "iconplus" then
-					for i = 0, 24, 2 do
-						AddSelect(lvl, format("+%d", i), sub, i)
-					end
-				elseif sub == "More" then
-					AddToggle(lvl, L["Vertical"], "vertical")
-					AddToggle(lvl, L["Reverse"], "reverse")
-					AddToggle(lvl, L["Disable Cast Fail"], "hidefail")
-					AddToggle(lvl, L["Disable Equipped"], "hideinv")
-					AddToggle(lvl, L["Disable Bags"], "hidebag")
-					AddToggle(lvl, L["Disable Pet"], "hidepet")
-					AddToggle(lvl, L["Save Per Char"], "perchar")
-					AddToggle(lvl, _G.RESET_TO_DEFAULT, "resetall")
-				end
-			end
-		end
+			ToggleDropDownMenu(1, nil, CoolLineDD, CoolLineAnchor, 0, 0)
+			self:Hide()
+		end)
 	end
 
+	-- 策略调整: 先显示救援按钮 (作为故障保险)，再尝试打开菜单
+	RescueButton:Show()
 
-	CoolLineDD:ClearAllPoints()
-	CoolLineDD:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-	ToggleDropDownMenu(1, nil, CoolLineDD, "CoolLineDD", 0, 0)
+	-- 尝试清除干扰
+	if UIDropDownMenu_GetCurrentDropDown and UIDropDownMenu_GetCurrentDropDown() ~= CoolLineDD then
+		CloseDropDownMenus()
+	end
+	
+	-- 注册检查器 (放在 Toggle 前，防止 Toggle 报错中断导致 Timer 未注册)
+	C_Timer.After(0.1, function()
+		-- 检查实际的下拉菜单列表是否可见，而不仅仅是 CoolLineDD 逻辑框架
+		-- UIDropDownMenu 使用 DropDownList1, DropDownList2 等显示菜单内容
+		local isMenuOpen = UIDROPDOWNMENU_OPEN_MENU == CoolLineDD and DropDownList1 and DropDownList1:IsShown()
+		
+		if isMenuOpen then
+			RescueButton:Hide()
+		else
+			-- 如果没显示菜单 (静默失败)，保留按钮并提示
+			-- 只有在此刻才提示，避免刷屏
+			if RescueButton:IsShown() then
+				local msg = "|cff88ffffCoolLine|r: "..(L["menu_taint_warning"] or "Menu blocked by taint. Please click the button to open.")
+				print(msg)
+			end
+		end
+	end)
+
+	-- 尝试直接打开
+	ToggleDropDownMenu(1, nil, CoolLineDD, CoolLineAnchor, 0, 0)
 end
 
 CONFIGMODE_CALLBACKS = CONFIGMODE_CALLBACKS or {}
 CONFIGMODE_CALLBACKS.CoolLine = function(action, mode)
 	if action == "ON" then
-		if not CoolLineDD then
-			ShowOptions()
+		InitializeMenu() -- Ensure initialized
+		if not CoolLineDD:IsShown() then
 			ToggleDropDownMenu(1, nil, CoolLineDD, "cursor")
-			end
+		end
+		
 		if CoolLineDD and not CoolLine.unlock then
 			Set(nil, "unlock")
 		end
